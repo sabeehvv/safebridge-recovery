@@ -38,8 +38,10 @@ export function TrustedContactAction({ message, contactPhone, language = "en" }:
           title: isML ? "SafeBridge സഹായ അഭ്യർത്ഥന" : "SafeBridge Support Request",
           text: message
         });
-      } catch (err) {
-        console.log("Share cancelled or failed", err);
+      } catch (error: unknown) {
+        if (!(error instanceof DOMException && error.name === "AbortError")) {
+          console.error("Share failed:", error);
+        }
       }
     } else {
       handleCopy();
