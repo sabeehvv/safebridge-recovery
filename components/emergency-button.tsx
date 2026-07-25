@@ -1,8 +1,9 @@
 "use client";
 
-import React, { useState } from "react";
+import React, { useEffect, useState } from "react";
 import { AlertTriangle, Phone, Volume2, Shield, X, Activity } from "lucide-react";
-import { getSavedSafetyCard } from "@/lib/local-storage";
+import { normalizePhoneNumber } from "@/lib/local-storage";
+import { useSavedSafetyCard } from "@/lib/use-saved-safety-card";
 import { Language } from "@/lib/schemas";
 
 interface EmergencyButtonProps {
@@ -12,12 +13,22 @@ interface EmergencyButtonProps {
 export function EmergencyButton({ language = "en" }: EmergencyButtonProps) {
   const [isOpen, setIsOpen] = useState(false);
   const [showSafetyCard, setShowSafetyCard] = useState(false);
-  const savedCard = getSavedSafetyCard();
+  const savedCard = useSavedSafetyCard();
   const isML = language === "ml";
+
+  useEffect(() => {
+    if (!isOpen) return;
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") setIsOpen(false);
+    };
+    document.addEventListener("keydown", onKeyDown);
+    return () => document.removeEventListener("keydown", onKeyDown);
+  }, [isOpen]);
 
   return (
     <>
-      <button
+      <a
+        href="tel:112"
         onClick={() => setIsOpen(true)}
         className="w-full bg-red-600 hover:bg-red-700 text-white font-bold py-4 px-6 rounded-2xl shadow-lg border-2 border-red-400 flex items-center justify-center gap-3 transition-all transform active:scale-98 animate-pulse text-lg"
         aria-label={isML ? "അടിയന്തര ഘട്ടം: പ്രതികരണമില്ലാത്ത അവസ്ഥ" : "Emergency Bypass: Someone is not responding"}
@@ -28,11 +39,16 @@ export function EmergencyButton({ language = "en" }: EmergencyButtonProps) {
             ? "പ്രതികരണമില്ലെങ്കിൽ അടിയന്തര ഘട്ടം — നേരിട്ടുള്ള സഹായം"
             : "SOMEONE IS NOT RESPONDING — EMERGENCY BYPASS"}
         </span>
-      </button>
+      </a>
 
       {isOpen && (
         <div className="fixed inset-0 bg-black/80 backdrop-blur-md z-50 flex items-center justify-center p-4 overflow-y-auto">
-          <div className="bg-red-950 border-2 border-red-500 text-white rounded-3xl max-w-xl w-full p-6 shadow-2xl relative space-y-5">
+          <div
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="emergency-dialog-title"
+            className="bg-red-950 border-2 border-red-500 text-white rounded-3xl max-w-xl w-full p-6 shadow-2xl relative space-y-5"
+          >
             <button
               onClick={() => setIsOpen(false)}
               className="absolute top-4 right-4 text-red-300 hover:text-white p-2"
@@ -48,7 +64,7 @@ export function EmergencyButton({ language = "en" }: EmergencyButtonProps) {
               </span>
             </div>
 
-            <h2 className="text-3xl font-extrabold text-white leading-tight">
+            <h2 id="emergency-dialog-title" className="text-3xl font-extrabold text-white leading-tight">
               {isML ? "അടിയന്തര സേവനങ്ങൾ ഉടൻ വിളിക്കുക" : "Call Emergency Services Now"}
             </h2>
 
@@ -78,11 +94,18 @@ export function EmergencyButton({ language = "en" }: EmergencyButtonProps) {
               </div>
             </div>
 
+            <div className="bg-yellow-950/60 border border-yellow-600 rounded-2xl p-4 text-sm text-yellow-100">
+              <strong>{isML ? "ശ്വാസം സാധാരണമല്ലെങ്കിൽ:" : "If breathing is not normal:"}</strong>{" "}
+              {isML
+                ? "112 ഓപ്പറേറ്റർ നിർദ്ദേശിക്കുന്നുവെങ്കിൽ ഉടൻ CPR ആരംഭിക്കുക. വ്യക്തിയെ റിക്കവറി പൊസിഷനിൽ ഇടരുത്."
+                : "Start CPR immediately if the 112 operator instructs you. Do not place the person in the recovery position."}
+            </div>
+
             {/* Recovery Position Step-by-Step Guide */}
             <div className="bg-red-900/40 border border-red-800 rounded-2xl p-4 space-y-3">
               <div className="flex items-center gap-2 text-red-200 font-bold text-base">
                 <Activity className="w-5 h-5 text-yellow-400" />
-                <h3>{isML ? "റിക്കവറി പൊസിഷൻ ഘട്ടങ്ങൾ (Recovery Position)" : "Recovery Position Step-by-Step Guide"}</h3>
+                <h3>{isML ? "സാധാരണ ശ്വാസമുണ്ടെങ്കിൽ മാത്രം: റിക്കവറി പൊസിഷൻ" : "Only if breathing normally: recovery position"}</h3>
               </div>
               <ol className="space-y-2 text-xs text-red-100 list-decimal list-inside leading-relaxed">
                 <li>
@@ -125,7 +148,7 @@ export function EmergencyButton({ language = "en" }: EmergencyButtonProps) {
                 <p><strong>{isML ? "മുന്നറിയിപ്പ് സൂചനകൾ:" : "Warning Signs:"}</strong> {savedCard.warningSigns.join(", ")}</p>
                 <p><strong>{isML ? "സഹായകരമായ കാര്യങ്ങൾ:" : "What Helps:"}</strong> {savedCard.whatHelps.join(", ")}</p>
                 <a
-                  href={`tel:${savedCard.trustedContactPhone}`}
+                  href={`tel:${normalizePhoneNumber(savedCard.trustedContactPhone)}`}
                   className="inline-flex items-center gap-1.5 bg-emerald-600 hover:bg-emerald-500 text-white px-3 py-1.5 rounded-lg font-bold mt-1 transition-all"
                 >
                   <Phone className="w-3.5 h-3.5" /> {isML ? `${savedCard.trustedContactName}-നെ വിളിക്കുക` : `Call ${savedCard.trustedContactName}`}

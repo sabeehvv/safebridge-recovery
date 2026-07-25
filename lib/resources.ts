@@ -22,9 +22,9 @@ export const VERIFIED_RESOURCES: VerifiedResource[] = [
     purpose: "Immediate emergency medical and life safety response",
     purposeMl: "അടിയന്തര വൈദ്യസഹായവും ജീവൻ രക്ഷാ പ്രതികരണവും",
     phone: "112",
-    sourceUrl: "https://erss.in",
+    sourceUrl: "https://112.gov.in/",
     supportedSituations: ["unresponsive", "breathing_issue", "overdose", "immediate_danger"],
-    lastVerified: "2026-07-01"
+    lastVerified: "2026-07-25"
   },
   {
     id: "nmba_14446",
@@ -37,7 +37,7 @@ export const VERIFIED_RESOURCES: VerifiedResource[] = [
     phone: "14446",
     sourceUrl: "https://nmba.dosje.gov.in",
     supportedSituations: ["craving", "recent_substance_use", "treatment_guidance"],
-    lastVerified: "2026-07-01"
+    lastVerified: "2026-07-25"
   },
   {
     id: "telemanas_14416",
@@ -48,9 +48,9 @@ export const VERIFIED_RESOURCES: VerifiedResource[] = [
     purpose: "24/7 tele-mental health services and emotional crisis intervention",
     purposeMl: "24/7 മാനസികാരോഗ്യ കൗൺസിലിംഗും വൈകാരിക പിന്തുണയും",
     phone: "14416",
-    sourceUrl: "https://telemanas.mohfw.gov.in",
+    sourceUrl: "https://www.pib.gov.in/PressReleasePage.aspx?PRID=2245967&lang=1",
     supportedSituations: ["emotional_crisis", "relapse_shame", "caregiver_stress"],
-    lastVerified: "2026-07-01"
+    lastVerified: "2026-07-25"
   },
   {
     id: "tobacco_1800112356",
@@ -63,7 +63,7 @@ export const VERIFIED_RESOURCES: VerifiedResource[] = [
     phone: "1800-112-356",
     sourceUrl: "https://ntcp.mohfw.gov.in",
     supportedSituations: ["nicotine_craving", "tobacco_cessation"],
-    lastVerified: "2026-07-01"
+    lastVerified: "2026-07-25"
   }
 ];
 

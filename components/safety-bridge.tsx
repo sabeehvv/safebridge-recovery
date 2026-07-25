@@ -2,7 +2,7 @@
 
 import React, { useState } from "react";
 import { SafetyAssessment, Language } from "@/lib/schemas";
-import { Shield, AlertCircle, HelpCircle, ArrowRight, UserCheck, AlertTriangle } from "lucide-react";
+import { Shield, AlertCircle, HelpCircle, ArrowRight, UserCheck } from "lucide-react";
 
 interface SafetyBridgeProps {
   assessment: SafetyAssessment;
@@ -55,7 +55,12 @@ export function SafetyBridge({
           <div className="bg-slate-900 p-2.5 rounded-xl border border-slate-800 flex items-center gap-2 text-slate-300">
             <UserCheck className="w-4 h-4 text-sky-400" />
             <span>
-              <strong>Status:</strong> {assessment.person.isAlone ? "Alone" : "With Others"}
+              <strong>Status:</strong>{" "}
+              {assessment.person.isAlone === null
+                ? "Not confirmed"
+                : assessment.person.isAlone
+                  ? "Alone"
+                  : "With others"}
             </span>
           </div>
           <div className="bg-slate-900 p-2.5 rounded-xl border border-slate-800 flex items-center gap-2 text-slate-300">
@@ -92,24 +97,31 @@ export function SafetyBridge({
             {question.question}
           </h3>
 
-          <div className="grid grid-cols-3 gap-3 pt-2">
+          <div
+            className="grid grid-cols-1 sm:grid-cols-3 gap-3 pt-2"
+            role="group"
+            aria-label={question.question}
+          >
             <button
+              type="button"
               onClick={() => handleOptionSelect("yes")}
               className="py-3 px-4 bg-emerald-600 hover:bg-emerald-500 text-white font-extrabold rounded-xl shadow-md transition-all active:scale-95 text-base"
             >
-              YES
+              {isML ? "അതെ" : "YES"}
             </button>
             <button
+              type="button"
               onClick={() => handleOptionSelect("no")}
               className="py-3 px-4 bg-rose-600 hover:bg-rose-500 text-white font-extrabold rounded-xl shadow-md transition-all active:scale-95 text-base"
             >
-              NO
+              {isML ? "ഇല്ല" : "NO"}
             </button>
             <button
+              type="button"
               onClick={() => handleOptionSelect("unsure")}
               className="py-3 px-4 bg-slate-700 hover:bg-slate-600 text-white font-bold rounded-xl shadow-md transition-all active:scale-95 text-base"
             >
-              NOT SURE
+              {isML ? "ഉറപ്പില്ല" : "NOT SURE"}
             </button>
           </div>
         </div>
@@ -122,6 +134,7 @@ export function SafetyBridge({
           </div>
 
           <button
+            type="button"
             onClick={() => onConfirmQuestion(answers)}
             className="w-full bg-sky-500 hover:bg-sky-400 text-slate-950 font-black py-4 px-6 rounded-2xl shadow-xl flex items-center justify-center gap-2 transition-all text-lg"
           >

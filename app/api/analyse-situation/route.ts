@@ -1,135 +1,179 @@
 import { NextRequest, NextResponse } from "next/server";
 import { analyzeSituationAudio, generateIntervention } from "@/lib/gemini";
 import { evaluateSafetyPath, extractRedFlagsFromText } from "@/lib/safety-engine";
-import { SituationMode, Language, SafetyAssessment } from "@/lib/schemas";
+import {
+  Language,
+  LanguageSchema,
+  SafetyAssessment,
+  SituationMode,
+  SituationModeSchema
+} from "@/lib/schemas";
 import { VERIFIED_RESOURCES } from "@/lib/resources";
 
+export const runtime = "nodejs";
+
+const MAX_AUDIO_BYTES = 10 * 1024 * 1024;
+const MAX_REQUEST_BYTES = MAX_AUDIO_BYTES + 256 * 1024;
+const MAX_TEXT_LENGTH = 10_000;
+const ALLOWED_AUDIO_TYPES = new Set([
+  "audio/webm",
+  "audio/ogg",
+  "audio/mp4",
+  "audio/mpeg",
+  "audio/wav",
+  "audio/x-wav"
+]);
+
+function normalizeMimeType(value: string): string {
+  return value.toLowerCase().split(";", 1)[0].trim();
+}
+
+function safetyOnly(errorReason: string, status = 200) {
+  return NextResponse.json(
+    {
+      isSafetyOnlyMode: true,
+      errorReason,
+      fallbackResources: VERIFIED_RESOURCES
+    },
+    { status }
+  );
+}
+
+function buildDeterministicTextAssessment(
+  text: string,
+  mode: SituationMode,
+  language: Language
+): SafetyAssessment {
+  const redFlags = extractRedFlagsFromText(text);
+  const hasBreathingFlag =
+    redFlags.includes("not_breathing_normally") ||
+    redFlags.includes("severe_breathing_difficulty");
+
+  return {
+    transcript: text,
+    language,
+    mode,
+    person: {
+      isUser: mode !== "caregiver_concern",
+      isAlone: null,
+      isResponsive: redFlags.includes("unresponsive") ? false : null,
+      breathingConcernReported: hasBreathingFlag ? true : null,
+      recentUseReported: mode === "recent_substance_use",
+      immediateSelfHarmConcern: redFlags.includes("immediate_self_harm_risk") ? true : null,
+      immediateViolenceConcern: redFlags.includes("immediate_violence_risk") ? true : null
+    },
+    context: {
+      substanceCategory: "unknown",
+      triggeringSituation: text,
+      emotions: [],
+      locationContext: null,
+      trustedPersonAvailable: null
+    },
+    reportedRedFlags: redFlags,
+    aiAssessment: {
+      suggestedUrgency: redFlags.length > 0 ? "emergency" : "guided_support",
+      reason:
+        redFlags.length > 0
+          ? "Acute red flags identified by the deterministic text safety check."
+          : "Accessibility text intake received; critical facts still require confirmation.",
+      confidence: redFlags.length > 0 ? 1 : 0
+    },
+    missingCriticalQuestion:
+      redFlags.length > 0
+        ? null
+        : mode === "caregiver_concern"
+          ? {
+              id: "isResponsive",
+              question: "Is the person awake and responding normally?",
+              options: ["yes", "no", "unsure"]
+            }
+          : mode === "recent_substance_use"
+            ? {
+                id: "breathing",
+                question: "Are you breathing normally right now?",
+                options: ["yes", "no", "unsure"]
+              }
+            : null,
+    requiresHumanReview: true
+  };
+}
+
+function logServerError(context: string, error: unknown): void {
+  const detail = error instanceof Error ? `${error.name}: ${error.message}` : "Unknown error";
+  console.error(`${context}: ${detail}`);
+}
+
 export async function POST(req: NextRequest) {
+  const contentLength = Number(req.headers.get("content-length") || 0);
+  if (Number.isFinite(contentLength) && contentLength > MAX_REQUEST_BYTES) {
+    return safetyOnly("The recording is too large. Use a shorter recording or call 112 in an emergency.", 413);
+  }
+
   try {
     const formData = await req.formData();
-    const audioFile = formData.get("audio") as File | null;
-    const mode = (formData.get("mode") as SituationMode) || "recent_substance_use";
-    const language = (formData.get("language") as Language) || "en";
-    const textFallback = formData.get("textFallback") as string | null;
+    const audioEntry = formData.get("audio");
+    const audioFile = audioEntry instanceof File ? audioEntry : null;
+    const modeResult = SituationModeSchema.safeParse(formData.get("mode"));
+    const languageResult = LanguageSchema.safeParse(formData.get("language"));
+    const textEntry = formData.get("textFallback");
+    const textFallback = typeof textEntry === "string" ? textEntry.trim() : "";
+
+    if (!modeResult.success || !languageResult.success) {
+      return safetyOnly("The intake settings were invalid. Please start a new report.", 400);
+    }
+    const mode = modeResult.data;
+    const language = languageResult.data;
 
     if (!audioFile && !textFallback) {
-      return NextResponse.json(
-        { error: "Audio file or text fallback is required." },
-        { status: 400 }
-      );
+      return safetyOnly("A voice recording or accessibility text report is required.", 400);
     }
-
-    // Limit audio file size to 10MB max if provided
-    if (audioFile && audioFile.size > 10 * 1024 * 1024) {
-      return NextResponse.json(
-        { error: "Audio file exceeds maximum size limit (10MB)." },
-        { status: 400 }
-      );
+    if (textFallback.length > MAX_TEXT_LENGTH) {
+      return safetyOnly("The text report is too long. Please shorten it and try again.", 413);
     }
-
-    let assessment: SafetyAssessment | null = null;
-
-    // Check immediate deterministic red flags in text fallback before calling AI
-    const fallbackRedFlags = textFallback ? extractRedFlagsFromText(textFallback) : [];
-
-    // Step 1: Call Gemini for audio analysis & structured extraction if audio provided
     if (audioFile) {
-      try {
-        const bytes = await audioFile.arrayBuffer();
-        const buffer = Buffer.from(bytes);
-        assessment = await analyzeSituationAudio(buffer, audioFile.type || "audio/webm", mode, language);
-      } catch (geminiError: any) {
-        console.error("Gemini analysis error:", geminiError);
-
-        // If fallback text contains acute red flags, trigger emergency assessment directly
-        if (fallbackRedFlags.length > 0) {
-          assessment = {
-            transcript: textFallback || "Emergency reported via text fallback",
-            language,
-            mode,
-            person: {
-              isUser: true,
-              isAlone: null,
-              isResponsive: fallbackRedFlags.includes("unresponsive") ? false : null,
-              breathingConcernReported: fallbackRedFlags.includes("not_breathing_normally") || fallbackRedFlags.includes("severe_breathing_difficulty") ? true : null,
-              recentUseReported: null,
-              immediateSelfHarmConcern: fallbackRedFlags.includes("immediate_self_harm_risk") ? true : null,
-              immediateViolenceConcern: fallbackRedFlags.includes("immediate_violence_risk") ? true : null
-            },
-            context: {
-              substanceCategory: "unknown",
-              triggeringSituation: textFallback || null,
-              emotions: ["fear"],
-              locationContext: null,
-              trustedPersonAvailable: null
-            },
-            reportedRedFlags: fallbackRedFlags,
-            aiAssessment: {
-              suggestedUrgency: "emergency",
-              reason: "Deterministic safety red flags detected in text intake fallback.",
-              confidence: 1.0
-            },
-            missingCriticalQuestion: null,
-            requiresHumanReview: true
-          };
-        } else {
-          // Return Safety-Only Mode payload if Gemini fails or times out
-          return NextResponse.json({
-            isSafetyOnlyMode: true,
-            errorReason: geminiError?.message || "Personalized AI analysis is temporarily unavailable.",
-            fallbackResources: VERIFIED_RESOURCES
-          });
-        }
+      const mimeType = normalizeMimeType(audioFile.type);
+      if (audioFile.size === 0 || audioFile.size > MAX_AUDIO_BYTES) {
+        return safetyOnly("The recording is empty or exceeds the 10 MB limit.", 413);
       }
-    } else if (textFallback) {
-      // Direct text intake mode
-      assessment = {
-        transcript: textFallback,
-        language,
-        mode,
-        person: {
-          isUser: true,
-          isAlone: null,
-          isResponsive: fallbackRedFlags.includes("unresponsive") ? false : null,
-          breathingConcernReported: fallbackRedFlags.includes("not_breathing_normally") || fallbackRedFlags.includes("severe_breathing_difficulty") ? true : null,
-          recentUseReported: null,
-          immediateSelfHarmConcern: fallbackRedFlags.includes("immediate_self_harm_risk") ? true : null,
-          immediateViolenceConcern: fallbackRedFlags.includes("immediate_violence_risk") ? true : null
-        },
-        context: {
-          substanceCategory: "unknown",
-          triggeringSituation: textFallback,
-          emotions: [],
-          locationContext: null,
-          trustedPersonAvailable: null
-        },
-        reportedRedFlags: fallbackRedFlags,
-        aiAssessment: {
-          suggestedUrgency: fallbackRedFlags.length > 0 ? "emergency" : "guided_support",
-          reason: fallbackRedFlags.length > 0 ? "Acute red flags identified in text." : "Text intake processed.",
-          confidence: 0.9
-        },
-        missingCriticalQuestion: null,
-        requiresHumanReview: true
-      };
+      if (!ALLOWED_AUDIO_TYPES.has(mimeType)) {
+        return safetyOnly("That audio format is not supported. Please re-record in the browser.", 415);
+      }
     }
 
-    if (!assessment) {
-      return NextResponse.json({
-        isSafetyOnlyMode: true,
-        errorReason: "Failed to process intake data.",
-        fallbackResources: VERIFIED_RESOURCES
-      });
+    const textAssessment = textFallback
+      ? buildDeterministicTextAssessment(textFallback, mode, language)
+      : null;
+
+    // Never wait for AI when typed accessibility input already contains an
+    // acute deterministic red flag.
+    let assessment: SafetyAssessment;
+    if (textAssessment && textAssessment.reportedRedFlags.length > 0) {
+      assessment = textAssessment;
+    } else if (audioFile) {
+      try {
+        const buffer = Buffer.from(await audioFile.arrayBuffer());
+        assessment = await analyzeSituationAudio(
+          buffer,
+          normalizeMimeType(audioFile.type),
+          mode,
+          language
+        );
+      } catch (error: unknown) {
+        logServerError("Gemini safety analysis failed", error);
+        return safetyOnly(
+          "Personalized analysis is temporarily unavailable. Verified safety actions remain available."
+        );
+      }
+    } else {
+      assessment = textAssessment as SafetyAssessment;
     }
 
-    // Step 2: Evaluate Safety Path using Deterministic Safety Engine
-    const additionalAnswers: Record<string, string> = {};
-    if (textFallback) additionalAnswers.textFallback = textFallback;
+    const safetyEval = evaluateSafetyPath(
+      assessment,
+      textFallback ? { textFallback } : undefined
+    );
 
-    const safetyEval = evaluateSafetyPath(assessment, additionalAnswers);
-
-    // Step 3: If emergency override triggered, skip intervention generation
-    if (safetyEval.isEmergencyOverride || safetyEval.finalUrgency === "emergency") {
+    if (safetyEval.finalUrgency === "emergency") {
       return NextResponse.json({
         assessment,
         safetyEval,
@@ -138,35 +182,22 @@ export async function POST(req: NextRequest) {
       });
     }
 
-    // Step 4: Generate Personalized Intervention
-    let intervention;
     try {
-      intervention = await generateIntervention(assessment);
-    } catch (genErr: any) {
-      console.error("Gemini intervention generation error:", genErr);
+      const intervention = await generateIntervention(assessment);
       return NextResponse.json({
         assessment,
         safetyEval,
-        intervention: null,
-        isSafetyOnlyMode: true,
-        errorReason: "Intervention script generation encountered an error."
+        intervention,
+        isSafetyOnlyMode: false
       });
+    } catch (error: unknown) {
+      logServerError("Gemini intervention generation failed", error);
+      return safetyOnly(
+        "Personalized recovery guidance is temporarily unavailable. Verified safety actions remain available."
+      );
     }
-
-    return NextResponse.json({
-      assessment,
-      safetyEval,
-      intervention,
-      isSafetyOnlyMode: false
-    });
-  } catch (error: any) {
-    console.error("Unhandled error in /api/analyse-situation:", error);
-    return NextResponse.json(
-      {
-        isSafetyOnlyMode: true,
-        errorReason: "An unexpected system error occurred. Safety mode activated."
-      },
-      { status: 500 }
-    );
+  } catch (error: unknown) {
+    logServerError("Unhandled /api/analyse-situation error", error);
+    return safetyOnly("The report could not be processed. Safety mode is active.", 500);
   }
 }

@@ -17,13 +17,13 @@ export function CaregiverScript({ sayThis, avoidThis, checkNow, language = "en" 
 
   const handleReadScript = () => {
     if (typeof window === "undefined" || !("speechSynthesis" in window)) return;
-    window.speechSynthesis.cancel();
-
     if (isPlaying) {
+      window.speechSynthesis.cancel();
       setIsPlaying(false);
       return;
     }
 
+    window.speechSynthesis.cancel();
     const text = isML
       ? `പറയേണ്ട കാര്യങ്ങൾ: ${sayThis.join(". ")}. ഒഴിവാക്കേണ്ട കാര്യങ്ങൾ: ${avoidThis.join(". ")}`
       : `What to say: ${sayThis.join(". ")}. What to avoid: ${avoidThis.join(". ")}`;

@@ -1,7 +1,7 @@
 "use client";
 
-import React, { useState, useEffect } from "react";
-import { Volume2, VolumeX, Play, Pause, Sparkles, AlertCircle } from "lucide-react";
+import React, { useState, useSyncExternalStore } from "react";
+import { VolumeX, Play, Pause, Sparkles, AlertCircle } from "lucide-react";
 import { Language } from "@/lib/schemas";
 
 interface SpokenInterventionProps {
@@ -11,31 +11,38 @@ interface SpokenInterventionProps {
 
 export function SpokenIntervention({ script, language }: SpokenInterventionProps) {
   const [isPlaying, setIsPlaying] = useState(false);
-  const [isSupported, setIsSupported] = useState(true);
+  const isSupported = useSyncExternalStore(
+    () => () => undefined,
+    () => "speechSynthesis" in window,
+    () => false
+  );
   const [voiceNotFound, setVoiceNotFound] = useState(false);
 
   const isML = language === "ml";
 
-  useEffect(() => {
-    if (typeof window === "undefined" || !("speechSynthesis" in window)) {
-      setIsSupported(false);
-    }
-  }, []);
-
   const handleSpeak = () => {
     if (!isSupported || !script) return;
 
-    window.speechSynthesis.cancel();
-
     if (isPlaying) {
-      window.speechSynthesis.pause();
+      window.speechSynthesis.cancel();
       setIsPlaying(false);
       return;
     }
 
+    window.speechSynthesis.cancel();
     const utterance = new SpeechSynthesisUtterance(script);
     utterance.lang = language === "ml" ? "ml-IN" : "en-US";
     utterance.rate = 0.9; // Calm, deliberate pace
+    const matchingVoice = window.speechSynthesis
+      .getVoices()
+      .find((voice) => voice.lang.toLowerCase().startsWith(language === "ml" ? "ml" : "en"));
+    if (matchingVoice) {
+      utterance.voice = matchingVoice;
+      setVoiceNotFound(false);
+    } else if (language === "ml") {
+      setVoiceNotFound(true);
+      return;
+    }
 
     utterance.onend = () => setIsPlaying(false);
     utterance.onerror = (e) => {
@@ -71,7 +78,7 @@ export function SpokenIntervention({ script, language }: SpokenInterventionProps
             >
               {isPlaying ? (
                 <>
-                  <Pause className="w-4 h-4" /> {isML ? "നിർത്തുക" : "Pause Speech"}
+                  <Pause className="w-4 h-4" /> {isML ? "നിർത്തുക" : "Stop Speech"}
                 </>
               ) : (
                 <>

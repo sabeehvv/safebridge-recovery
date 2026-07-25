@@ -2,18 +2,16 @@
 
 import React, { useState, useRef, useEffect } from "react";
 import { Mic, Square, Play, Pause, Trash2, Send, ShieldCheck, AlertCircle, FileText } from "lucide-react";
-import { SituationMode, Language } from "@/lib/schemas";
+import { Language } from "@/lib/schemas";
 import { PRIVACY_DISCLOSURE } from "@/lib/privacy";
 
 interface VoiceRecorderProps {
-  mode: SituationMode;
   language: Language;
-  onAudioSubmit: (audioBlob: Blob, textFallback?: string) => void;
+  onAudioSubmit: (audioBlob: Blob | null, textFallback?: string) => void;
   isAnalyzing: boolean;
 }
 
 export function VoiceRecorder({
-  mode,
   language,
   onAudioSubmit,
   isAnalyzing
@@ -29,8 +27,9 @@ export function VoiceRecorder({
 
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const audioChunksRef = useRef<Blob[]>([]);
-  const timerRef = useRef<NodeJS.Timeout | null>(null);
+  const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const audioRef = useRef<HTMLAudioElement | null>(null);
+  const streamRef = useRef<MediaStream | null>(null);
 
   const isML = language === "ml";
 
@@ -56,6 +55,7 @@ export function VoiceRecorder({
     return () => {
       if (timerRef.current) clearInterval(timerRef.current);
       if (audioUrl) URL.revokeObjectURL(audioUrl);
+      streamRef.current?.getTracks().forEach((track) => track.stop());
     };
   }, [audioUrl]);
 
@@ -69,7 +69,11 @@ export function VoiceRecorder({
     }
 
     try {
+      if (!navigator.mediaDevices?.getUserMedia || !window.MediaRecorder) {
+        throw new Error("Audio recording is not supported by this browser.");
+      }
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      streamRef.current = stream;
       const supportedType = getSupportedMimeType();
       const options = supportedType ? { mimeType: supportedType } : undefined;
       const mediaRecorder = new MediaRecorder(stream, options);
@@ -88,6 +92,7 @@ export function VoiceRecorder({
         const url = URL.createObjectURL(blob);
         setAudioUrl(url);
         stream.getTracks().forEach((track) => track.stop());
+        streamRef.current = null;
       };
 
       mediaRecorder.start();
@@ -97,8 +102,8 @@ export function VoiceRecorder({
       timerRef.current = setInterval(() => {
         setRecordingTime((prev) => prev + 1);
       }, 1000);
-    } catch (err: any) {
-      console.error("Microphone access error:", err);
+    } catch (error: unknown) {
+      console.error("Microphone access error:", error);
       setMicPermissionError(
         isML
           ? "മൈക്രോഫോൺ അനുമതി ലഭിച്ചില്ല. ദയവായി ക്രമീകരണങ്ങൾ പരിശോധിക്കുക അല്ലെങ്കിൽ താഴെ ടൈപ്പ് ചെയ്യുക."
@@ -142,8 +147,7 @@ export function VoiceRecorder({
     if (audioBlob) {
       onAudioSubmit(audioBlob, fallbackText.trim() || undefined);
     } else if (fallbackText.trim()) {
-      const emptyBlob = new Blob([fallbackText], { type: "text/plain" });
-      onAudioSubmit(emptyBlob, fallbackText.trim());
+      onAudioSubmit(null, fallbackText.trim());
     }
   };
 
@@ -184,8 +188,10 @@ export function VoiceRecorder({
       {!audioBlob ? (
         <div className="flex flex-col items-center justify-center py-6 space-y-4">
           <button
+            type="button"
             onClick={isRecording ? stopRecording : startRecording}
             disabled={isAnalyzing}
+            aria-pressed={isRecording}
             className={`relative w-28 h-28 rounded-full flex items-center justify-center transition-all transform active:scale-95 shadow-2xl ${
               isRecording
                 ? "bg-red-600 ring-8 ring-red-950 animate-pulse"
@@ -247,6 +253,7 @@ export function VoiceRecorder({
               ref={audioRef}
               src={audioUrl || ""}
               onEnded={() => setIsPlaying(false)}
+              onPause={() => setIsPlaying(false)}
               className="hidden"
             />
             <div className="flex-1 bg-slate-900 h-3 rounded-full overflow-hidden relative">
@@ -255,6 +262,7 @@ export function VoiceRecorder({
           </div>
 
           <button
+            type="button"
             onClick={handleSubmit}
             disabled={isAnalyzing}
             className="w-full bg-emerald-600 hover:bg-emerald-500 text-white font-extrabold py-3.5 px-5 rounded-xl shadow-lg flex items-center justify-center gap-2 transition-all"
@@ -277,6 +285,7 @@ export function VoiceRecorder({
       {/* Accessibility Text Fallback */}
       <div className="pt-2">
         <button
+          type="button"
           onClick={() => setShowTextFallback(!showTextFallback)}
           className="text-xs text-slate-400 hover:text-slate-200 flex items-center gap-1.5 mx-auto"
         >
@@ -299,9 +308,12 @@ export function VoiceRecorder({
                   : "Describe the situation here if microphone is unavailable..."
               }
               className="w-full bg-slate-950 border border-slate-800 rounded-xl p-3 text-sm text-slate-200 focus:outline-none focus:border-sky-500 h-24"
+              maxLength={10_000}
+              aria-label={isML ? "സാഹചര്യത്തിന്റെ എഴുത്ത് വിവരണം" : "Written description of the situation"}
             />
             {!audioBlob && fallbackText.trim() && (
               <button
+                type="button"
                 onClick={handleSubmit}
                 disabled={isAnalyzing}
                 className="w-full bg-sky-600 hover:bg-sky-500 text-white font-bold py-2.5 rounded-xl text-sm"
@@ -320,7 +332,8 @@ export function VoiceRecorder({
           <span>{PRIVACY_DISCLOSURE.title}</span>
         </div>
         <p className="text-[11px] leading-relaxed text-slate-400">
-          Audio is processed temporarily for crisis safety understanding and immediately erased. No logins, tracking, or permanent server logs.
+          Audio is sent to the SafeBridge server and Google Gemini for this analysis. SafeBridge does not
+          intentionally store the recording in an application database.
         </p>
       </div>
     </div>

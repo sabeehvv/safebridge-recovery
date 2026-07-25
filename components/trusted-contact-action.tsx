@@ -3,6 +3,7 @@
 import React, { useState } from "react";
 import { MessageCircle, Copy, Share2, Phone, Check } from "lucide-react";
 import { Language } from "@/lib/schemas";
+import { normalizePhoneNumber } from "@/lib/local-storage";
 
 interface TrustedContactActionProps {
   message: string | null;
@@ -62,7 +63,7 @@ export function TrustedContactAction({ message, contactPhone, language = "en" }:
         {/* Direct tel: Call Contact button when trusted contact phone number is present */}
         {phoneToCall && (
           <a
-            href={`tel:${phoneToCall.replace(/\s+/g, "")}`}
+            href={`tel:${normalizePhoneNumber(phoneToCall)}`}
             className="flex-1 bg-emerald-600 hover:bg-emerald-500 text-white font-bold py-3 px-4 rounded-xl text-xs flex items-center justify-center gap-2 transition-all shadow-md active:scale-95 min-w-[140px]"
           >
             <Phone className="w-4 h-4" />

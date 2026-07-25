@@ -31,8 +31,22 @@ export const RedFlagSchema = z.enum([
 
 export type RedFlag = z.infer<typeof RedFlagSchema>;
 
+export const CriticalQuestionIdSchema = z.enum([
+  "isResponsive",
+  "breathing",
+  "selfHarm",
+  "violence"
+]);
+
+export const ResourceIdSchema = z.enum([
+  "erss_112",
+  "nmba_14446",
+  "telemanas_14416",
+  "tobacco_1800112356"
+]);
+
 export const SafetyAssessmentSchema = z.object({
-  transcript: z.string(),
+  transcript: z.string().trim().min(1).max(10_000),
   language: LanguageSchema,
   mode: SituationModeSchema,
 
@@ -68,14 +82,14 @@ export const SafetyAssessmentSchema = z.object({
 
   aiAssessment: z.object({
     suggestedUrgency: UrgencyLevelSchema,
-    reason: z.string(),
+    reason: z.string().trim().min(1).max(1_000),
     confidence: z.number().min(0).max(1)
   }),
 
   missingCriticalQuestion: z.object({
-    id: z.string(),
-    question: z.string(),
-    options: z.array(z.enum(["yes", "no", "unsure"]))
+    id: CriticalQuestionIdSchema,
+    question: z.string().trim().min(1).max(300),
+    options: z.array(z.enum(["yes", "no", "unsure"])).length(3)
   }).nullable(),
 
   requiresHumanReview: z.literal(true)
@@ -111,8 +125,26 @@ export const InterventionSchema = z.object({
 
   nextThirtyMinutes: z.array(z.string()).max(5),
   tomorrowAction: z.string().nullable(),
-  resourceIds: z.array(z.string()),
-  disclaimer: z.string()
+  resourceIds: z.array(ResourceIdSchema).max(4),
+  disclaimer: z.string().trim().min(1).max(500)
 });
 
 export type Intervention = z.infer<typeof InterventionSchema>;
+
+export const AnalyzeSituationResponseSchema = z.discriminatedUnion("isSafetyOnlyMode", [
+  z.object({
+    isSafetyOnlyMode: z.literal(false),
+    assessment: SafetyAssessmentSchema,
+    safetyEval: z.object({
+      finalUrgency: UrgencyLevelSchema,
+      isEmergencyOverride: z.boolean(),
+      overrideReason: z.string().optional(),
+      mustCall112: z.boolean()
+    }),
+    intervention: InterventionSchema.nullable()
+  }),
+  z.object({
+    isSafetyOnlyMode: z.literal(true),
+    errorReason: z.string().optional()
+  }).passthrough()
+]);

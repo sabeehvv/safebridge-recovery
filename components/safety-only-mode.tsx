@@ -3,7 +3,8 @@
 import React from "react";
 import { AlertTriangle, Phone, ShieldCheck, Heart, RefreshCw } from "lucide-react";
 import { VERIFIED_RESOURCES, getLocalizedResource } from "@/lib/resources";
-import { getSavedSafetyCard } from "@/lib/local-storage";
+import { normalizePhoneNumber } from "@/lib/local-storage";
+import { useSavedSafetyCard } from "@/lib/use-saved-safety-card";
 import { Language } from "@/lib/schemas";
 
 interface SafetyOnlyModeProps {
@@ -13,12 +14,8 @@ interface SafetyOnlyModeProps {
 }
 
 export function SafetyOnlyMode({ reason, onRetry, language = "en" }: SafetyOnlyModeProps) {
-  const [savedCard, setSavedCard] = React.useState<ReturnType<typeof getSavedSafetyCard>>(null);
+  const savedCard = useSavedSafetyCard();
   const isML = language === "ml";
-
-  React.useEffect(() => {
-    setSavedCard(getSavedSafetyCard());
-  }, []);
 
   return (
     <div className="bg-slate-900 border-2 border-amber-500/80 rounded-3xl p-6 shadow-2xl space-y-6 animate-fade-in max-w-3xl mx-auto">
@@ -65,7 +62,7 @@ export function SafetyOnlyMode({ reason, onRetry, language = "en" }: SafetyOnlyM
             <p className="text-emerald-400 font-extrabold text-sm">{savedCard.trustedContactName}</p>
           </div>
           <a
-            href={`tel:${savedCard.trustedContactPhone}`}
+            href={`tel:${normalizePhoneNumber(savedCard.trustedContactPhone)}`}
             className="bg-emerald-600 hover:bg-emerald-500 text-white font-bold py-2.5 px-4 rounded-xl text-xs flex items-center gap-2"
           >
             <Phone className="w-4 h-4" />

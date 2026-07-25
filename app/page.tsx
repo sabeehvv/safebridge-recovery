@@ -1,18 +1,25 @@
 "use client";
 
 import React, { useState } from "react";
-import { SituationMode, Language, SafetyAssessment, Intervention } from "@/lib/schemas";
+import {
+  AnalyzeSituationResponseSchema,
+  SituationMode,
+  Language,
+  SafetyAssessment,
+  Intervention
+} from "@/lib/schemas";
 import { DeterministicSafetyEvaluation, evaluateSafetyPath } from "@/lib/safety-engine";
-import { DEFAULT_FALLBACK_INTERVENTION, HELPLINE_NUMBERS } from "@/lib/constants";
+import { HELPLINE_NUMBERS } from "@/lib/constants";
 import { EmergencyButton } from "@/components/emergency-button";
 import { ModeSelector } from "@/components/mode-selector";
 import { VoiceRecorder } from "@/components/voice-recorder";
 import { SafetyBridge } from "@/components/safety-bridge";
 import { RecoveryHandover } from "@/components/recovery-handover";
 import { SafetyOnlyMode } from "@/components/safety-only-mode";
+import { EmergencyMode } from "@/components/emergency-mode";
 import { Shield } from "lucide-react";
 
-type Step = "INTAKE" | "SAFETY_BRIDGE" | "HANDOVER" | "SAFETY_ONLY";
+type Step = "INTAKE" | "SAFETY_BRIDGE" | "HANDOVER" | "EMERGENCY" | "SAFETY_ONLY";
 
 export default function HomePage() {
   const [step, setStep] = useState<Step>("INTAKE");
@@ -27,28 +34,42 @@ export default function HomePage() {
 
   const isML = language === "ml";
 
-  const handleAudioSubmit = async (audioBlob: Blob, textFallback?: string) => {
+  const handleAudioSubmit = async (audioBlob: Blob | null, textFallback?: string) => {
     setIsAnalyzing(true);
     setSafetyOnlyReason(null);
 
     const formData = new FormData();
-    formData.append("audio", audioBlob, textFallback ? "fallback.txt" : "user-recording.webm");
+    if (audioBlob) {
+      formData.append("audio", audioBlob, "user-recording");
+    }
     formData.append("mode", mode);
     formData.append("language", language);
     if (textFallback) {
       formData.append("textFallback", textFallback);
     }
 
+    let requestTimeoutId: number | undefined;
     try {
+      const controller = new AbortController();
+      requestTimeoutId = window.setTimeout(() => controller.abort(), 15_000);
       const res = await fetch("/api/analyse-situation", {
         method: "POST",
-        body: formData
+        body: formData,
+        signal: controller.signal
       });
 
-      const data = await res.json();
+      const rawData: unknown = await res.json();
+      const parsed = AnalyzeSituationResponseSchema.safeParse(rawData);
+      if (!parsed.success) {
+        throw new Error("The server returned an invalid safety response.");
+      }
+      const data = parsed.data;
 
       if (!res.ok || data.isSafetyOnlyMode) {
-        setSafetyOnlyReason(data.errorReason || "Personalized AI analysis is temporarily unavailable.");
+        setSafetyOnlyReason(
+          ("errorReason" in data && data.errorReason) ||
+            "Personalized AI analysis is temporarily unavailable."
+        );
         setStep("SAFETY_ONLY");
         setIsAnalyzing(false);
         return;
@@ -56,21 +77,29 @@ export default function HomePage() {
 
       setAssessment(data.assessment);
       setSafetyEval(data.safetyEval);
-      setIntervention(data.intervention || DEFAULT_FALLBACK_INTERVENTION);
+      setIntervention(data.intervention);
 
       // If acute emergency red flags exist, force Safety Bridge / Emergency view immediately
-      if (data.safetyEval?.isEmergencyOverride || data.safetyEval?.finalUrgency === "emergency") {
-        setStep("SAFETY_BRIDGE");
+      if (data.safetyEval.finalUrgency === "emergency") {
+        setStep("EMERGENCY");
+      } else if (!data.intervention) {
+        setSafetyOnlyReason("Personalized recovery guidance was unavailable.");
+        setStep("SAFETY_ONLY");
       } else if (data.assessment.missingCriticalQuestion) {
         setStep("SAFETY_BRIDGE");
       } else {
         setStep("HANDOVER");
       }
-    } catch (err: any) {
-      console.error("Submission error:", err);
-      setSafetyOnlyReason("Network error occurred during API communication. Safety mode activated.");
+    } catch (error: unknown) {
+      console.error("Submission error:", error);
+      setSafetyOnlyReason(
+        error instanceof DOMException && error.name === "AbortError"
+          ? "The analysis timed out. Safety mode was activated."
+          : "The analysis could not be completed. Safety mode was activated."
+      );
       setStep("SAFETY_ONLY");
     } finally {
+      if (requestTimeoutId) window.clearTimeout(requestTimeoutId);
       setIsAnalyzing(false);
     }
   };
@@ -89,12 +118,14 @@ export default function HomePage() {
     setAssessment(updatedAssessment);
     setSafetyEval(updatedSafetyEval);
 
-    // Guarantee non-null intervention state
-    if (!intervention) {
-      setIntervention(DEFAULT_FALLBACK_INTERVENTION);
+    if (updatedSafetyEval.finalUrgency === "emergency") {
+      setStep("EMERGENCY");
+    } else if (intervention) {
+      setStep("HANDOVER");
+    } else {
+      setSafetyOnlyReason("Personalized recovery guidance was unavailable.");
+      setStep("SAFETY_ONLY");
     }
-
-    setStep("HANDOVER");
   };
 
   const handleReset = () => {
@@ -105,10 +136,8 @@ export default function HomePage() {
     setSafetyOnlyReason(null);
   };
 
-  const activeIntervention = intervention || DEFAULT_FALLBACK_INTERVENTION;
-
   return (
-    <main className="min-h-screen p-4 md:p-8 max-w-4xl mx-auto space-y-6">
+    <main lang={language} className="min-h-screen p-4 md:p-8 max-w-4xl mx-auto space-y-6">
       {/* Brand Header */}
       <header className="flex items-center justify-between border-b border-slate-800 pb-4">
         <div className="flex items-center gap-3">
@@ -144,7 +173,6 @@ export default function HomePage() {
             onSelectLanguage={setLanguage}
           />
           <VoiceRecorder
-            mode={mode}
             language={language}
             onAudioSubmit={handleAudioSubmit}
             isAnalyzing={isAnalyzing}
@@ -162,15 +190,23 @@ export default function HomePage() {
         </div>
       )}
 
-      {step === "HANDOVER" && assessment && (
+      {step === "HANDOVER" && assessment && intervention && (
         <div className="animate-fade-in">
           <RecoveryHandover
             assessment={assessment}
-            intervention={activeIntervention}
+            intervention={intervention}
             language={language}
             onReset={handleReset}
           />
         </div>
+      )}
+
+      {step === "EMERGENCY" && (
+        <EmergencyMode
+          language={language}
+          reason={safetyEval?.overrideReason}
+          onReset={handleReset}
+        />
       )}
 
       {step === "SAFETY_ONLY" && (

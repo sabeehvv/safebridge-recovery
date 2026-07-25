@@ -1,4 +1,9 @@
-import { SafetyAssessment, RedFlag, UrgencyLevel } from "./schemas";
+import {
+  SafetyAssessment,
+  RedFlag,
+  UrgencyLevel,
+  CriticalQuestionIdSchema
+} from "./schemas";
 
 export interface DeterministicSafetyEvaluation {
   finalUrgency: UrgencyLevel;
@@ -46,7 +51,7 @@ const RED_FLAG_KEYWORD_MAP: Record<RedFlag, string[]> = {
     "ആത്മഹത്യ", "ജീവനൊടുക്കുക", "സ്വയം ഉപദ്രവിക്കുക"
   ],
   immediate_violence_risk: [
-    "attack", "kill someone", "knife", "weapon", "harm others", "violence",
+    "attacking someone", "physical attack", "kill someone", "knife", "weapon", "harm others", "violence",
     "threatening to kill", "shoot",
     "ആക്രമണം", "അക്രമം", "മറ്റുള്ളവരെ ഉപദ്രവിക്കുക"
   ]
@@ -59,10 +64,18 @@ export function extractRedFlagsFromText(transcriptText: string): RedFlag[] {
   if (!transcriptText) return [];
   const normalizedText = transcriptText.toLowerCase();
   const detectedFlags: RedFlag[] = [];
+  const containsKeyword = (keyword: string): boolean => {
+    const normalizedKeyword = keyword.toLowerCase();
+    if (/[a-z0-9]/.test(normalizedKeyword)) {
+      const escaped = normalizedKeyword.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+      return new RegExp(`(^|[^a-z0-9])${escaped}($|[^a-z0-9])`, "i").test(normalizedText);
+    }
+    return normalizedText.includes(normalizedKeyword);
+  };
 
   for (const [flag, keywords] of Object.entries(RED_FLAG_KEYWORD_MAP) as [RedFlag, string[]][]) {
     for (const keyword of keywords) {
-      if (normalizedText.includes(keyword.toLowerCase())) {
+      if (containsKeyword(keyword)) {
         detectedFlags.push(flag);
         break; // Match found for this red flag, move to next flag type
       }
@@ -94,6 +107,11 @@ export function evaluateSafetyPath(
     if (additionalAnswers.breathing === "no") flags.add("not_breathing_normally");
     if (additionalAnswers.selfHarm === "yes") flags.add("immediate_self_harm_risk");
     if (additionalAnswers.violence === "yes") flags.add("immediate_violence_risk");
+
+    // When a caller cannot confirm responsiveness or normal breathing, the
+    // safest deterministic route is emergency support rather than AI guidance.
+    if (additionalAnswers.isResponsive === "unsure") flags.add("unresponsive");
+    if (additionalAnswers.breathing === "unsure") flags.add("not_breathing_normally");
 
     Object.values(additionalAnswers).forEach(val => {
       if (typeof val === "string") {
@@ -143,4 +161,8 @@ export function evaluateSafetyPath(
     isEmergencyOverride: false,
     mustCall112: false
   };
+}
+
+export function isCriticalQuestionId(value: string): boolean {
+  return CriticalQuestionIdSchema.safeParse(value).success;
 }

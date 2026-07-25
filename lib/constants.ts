@@ -1,60 +1,9 @@
-import { Intervention } from "./schemas";
-
 export const HELPLINE_NUMBERS = {
   EMERGENCY: "112",
   NASHA_MUKT_BHARAT: "14446",
   TELE_MANAS: "14416",
   TOBACCO_QUITLINE: "1800-112-356"
 } as const;
-
-export const DEFAULT_FALLBACK_INTERVENTION: Intervention = {
-  urgency: "guided_support",
-  immediateScript:
-    "Take a slow, deep breath. Focus on your immediate safety right now. You are safe, and verified support is available.",
-  immediateAction: {
-    title: "Grounding & Safety Pause",
-    instruction:
-      "Sit comfortably in a safe space. Sip a glass of water slowly and focus on 5 things you can see around you.",
-    durationMinutes: 10
-  },
-  trustedContactMessage:
-    "I am reaching out because I need some support right now. Could you please check in on me or stay on the line?",
-  caregiverScript: {
-    sayThis: [
-      "I am here with you and you are safe right now.",
-      "We can take this step by step together.",
-      "Let's focus on getting quiet, calm rest right now."
-    ],
-    avoidThis: [
-      "Do not blame or express disappointment.",
-      "Avoid arguing about past actions right now.",
-      "Do not leave the person isolated if they are distressed."
-    ],
-    checkNow: [
-      "Check if breathing is clear and regular.",
-      "Ensure surroundings are free of hazards or substances.",
-      "Keep emergency helpline numbers (112, 14446) ready."
-    ]
-  },
-  relapseMap: {
-    eventBeforeUse: "High emotional stress or unexpected crisis trigger",
-    emotionalTrigger: "Overwhelming anxiety or shame",
-    environmentalTrigger: "Isolated environment with accessible trigger items",
-    underlyingNeed: "Need for emotional relief and supportive connection",
-    preventionUpdate:
-      "Create a safe space and reach out to a trusted contact when feelings of anxiety escalate."
-  },
-  nextThirtyMinutes: [
-    "Stay in a comfortable, quiet room.",
-    "Sip water slowly and practice 4-7-8 breathing.",
-    "Reach out to a trusted friend or helpline if distress continues."
-  ],
-  tomorrowAction:
-    "Connect with a counselor, support group, or healthcare professional to discuss ongoing recovery goals.",
-  resourceIds: ["erss_112", "nmba_14446", "telemanas_14416", "tobacco_1800112356"],
-  disclaimer:
-    "SafeBridge provides recovery support tools. It does not replace emergency or clinical care."
-};
 
 export const MALAYALAM_TRANSLATIONS: Record<string, string> = {
   // App branding & layout
