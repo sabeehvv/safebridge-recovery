@@ -5,7 +5,12 @@ import { SAFETY_ANALYSIS_SYSTEM_PROMPT, INTERVENTION_SYSTEM_PROMPT } from "./pro
 const apiKey = process.env.GEMINI_API_KEY || "";
 const modelName = process.env.GEMINI_MODEL || "gemini-2.5-flash";
 
-const ai = new GoogleGenAI({ apiKey });
+function getClient(): GoogleGenAI {
+  if (!apiKey) {
+    throw new Error("GEMINI_API_KEY is not configured.");
+  }
+  return new GoogleGenAI({ apiKey });
+}
 
 async function withTimeout<T>(operation: Promise<T>, timeoutMs = 8_000): Promise<T> {
   let timeoutId: ReturnType<typeof setTimeout> | undefined;
@@ -42,7 +47,7 @@ Target Language: ${language}
 Please analyze this recorded voice situation. Transcribe the spoken text accurately, assess risk indicators, and provide structured safety assessment according to the system prompt guidelines.
 `;
 
-  const apiCall = ai.models.generateContent({
+  const apiCall = getClient().models.generateContent({
     model: modelName,
     contents: [
       {
@@ -203,7 +208,7 @@ ${JSON.stringify({
 </situation_data>
 `;
 
-  const apiCall = ai.models.generateContent({
+  const apiCall = getClient().models.generateContent({
     model: modelName,
     contents: [
       {
