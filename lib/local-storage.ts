@@ -41,10 +41,7 @@ export function getSavedSafetyCard(): RecoverySafetyCard | null {
   if (typeof window === "undefined") return null;
   try {
     const raw = localStorage.getItem(STORAGE_KEY);
-    if (!raw) return null;
-    const parsed: unknown = JSON.parse(raw);
-    const result = RecoverySafetyCardSchema.safeParse(parsed);
-    return result.success ? result.data : null;
+    return parseSavedSafetyCard(raw);
   } catch (e) {
     console.error("Failed to read safety card from localStorage", e);
     return null;

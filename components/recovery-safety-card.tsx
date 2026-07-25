@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import { getSavedSafetyCard, saveSafetyCard, deleteSafetyCard, RecoverySafetyCard } from "@/lib/local-storage";
 import { Shield, Save, Trash2, Check, X } from "lucide-react";
 import { Language } from "@/lib/schemas";
@@ -32,6 +32,7 @@ export function RecoverySafetyCardModal({
   );
 
   const [saved, setSaved] = useState(false);
+  const savedTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const isML = language === "ml";
 
   if (!isOpen) return null;
@@ -40,7 +41,8 @@ export function RecoverySafetyCardModal({
     const updated = { ...card, preferredLanguage: language, updatedAt: new Date().toISOString() };
     saveSafetyCard(updated);
     setSaved(true);
-    setTimeout(() => setSaved(false), 2000);
+    if (savedTimerRef.current) clearTimeout(savedTimerRef.current);
+    savedTimerRef.current = setTimeout(() => setSaved(false), 2000);
   };
 
   const handleDelete = () => {
@@ -172,3 +174,9 @@ export function RecoverySafetyCardModal({
     </div>
   );
 }
+  useEffect(
+    () => () => {
+      if (savedTimerRef.current) clearTimeout(savedTimerRef.current);
+    },
+    []
+  );

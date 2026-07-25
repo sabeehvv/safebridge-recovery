@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import { MessageCircle, Copy, Share2, Phone, Check } from "lucide-react";
 import { Language } from "@/lib/schemas";
 import { normalizePhoneNumber } from "@/lib/local-storage";
@@ -13,6 +13,7 @@ interface TrustedContactActionProps {
 
 export function TrustedContactAction({ message, contactPhone, language = "en" }: TrustedContactActionProps) {
   const [copied, setCopied] = useState(false);
+  const copiedTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const isML = language === "ml";
 
   if (!message) return null;
@@ -25,7 +26,8 @@ export function TrustedContactAction({ message, contactPhone, language = "en" }:
     try {
       await navigator.clipboard.writeText(message);
       setCopied(true);
-      setTimeout(() => setCopied(false), 3000);
+      if (copiedTimerRef.current) clearTimeout(copiedTimerRef.current);
+      copiedTimerRef.current = setTimeout(() => setCopied(false), 3000);
     } catch (err) {
       console.error("Copy error:", err);
     }
@@ -96,3 +98,9 @@ export function TrustedContactAction({ message, contactPhone, language = "en" }:
     </div>
   );
 }
+  useEffect(
+    () => () => {
+      if (copiedTimerRef.current) clearTimeout(copiedTimerRef.current);
+    },
+    []
+  );

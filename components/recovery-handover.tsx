@@ -27,12 +27,6 @@ export function RecoveryHandover({
 
   const isCaregiver = assessment.mode === "caregiver_concern";
 
-  const openNearestHospitalMaps = () => {
-    if (typeof window !== "undefined") {
-      window.open("https://www.google.com/maps/search/hospitals+near+me", "_blank");
-    }
-  };
-
   return (
     <div className="space-y-6">
       {/* Screen 3 Header */}
@@ -172,13 +166,15 @@ export function RecoveryHandover({
           {isML ? "ഉടനടി ചെയ്യാവുന്ന ഉപകരണങ്ങൾ:" : "Quick Action Tools:"}
         </h3>
         <div className="flex flex-wrap gap-3">
-          <button
-            onClick={openNearestHospitalMaps}
+          <a
+            href="https://www.google.com/maps/search/hospitals+near+me"
+            target="_blank"
+            rel="noopener noreferrer"
             className="flex-1 bg-slate-800 hover:bg-slate-700 text-sky-400 hover:text-white font-bold py-3.5 px-4 rounded-2xl text-xs flex items-center justify-center gap-2 border border-slate-700 transition-all shadow active:scale-95"
           >
             <MapPin className="w-4 h-4 text-rose-400" />
             <span>{isML ? "അടുത്തുള്ള ആശുപത്രി തിരയുക (Maps)" : "Search Nearest Hospital (Maps)"}</span>
-          </button>
+          </a>
 
           <button
             onClick={() => setShowCardModal(true)}

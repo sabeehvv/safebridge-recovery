@@ -57,6 +57,21 @@ const RED_FLAG_KEYWORD_MAP: Record<RedFlag, string[]> = {
   ]
 };
 
+type KeywordMatcher = string | RegExp;
+
+const RED_FLAG_MATCHERS = Object.entries(RED_FLAG_KEYWORD_MAP).map(
+  ([flag, keywords]) =>
+    [
+      flag as RedFlag,
+      keywords.map<KeywordMatcher>((keyword) => {
+        const normalizedKeyword = keyword.toLowerCase();
+        if (!/[a-z0-9]/.test(normalizedKeyword)) return normalizedKeyword;
+        const escaped = normalizedKeyword.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+        return new RegExp(`(^|[^a-z0-9])${escaped}($|[^a-z0-9])`, "i");
+      })
+    ] as const
+);
+
 /**
  * Extracts acute safety red flags from text transcript using English and Malayalam keywords.
  */
@@ -64,21 +79,16 @@ export function extractRedFlagsFromText(transcriptText: string): RedFlag[] {
   if (!transcriptText) return [];
   const normalizedText = transcriptText.toLowerCase();
   const detectedFlags: RedFlag[] = [];
-  const containsKeyword = (keyword: string): boolean => {
-    const normalizedKeyword = keyword.toLowerCase();
-    if (/[a-z0-9]/.test(normalizedKeyword)) {
-      const escaped = normalizedKeyword.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-      return new RegExp(`(^|[^a-z0-9])${escaped}($|[^a-z0-9])`, "i").test(normalizedText);
-    }
-    return normalizedText.includes(normalizedKeyword);
-  };
 
-  for (const [flag, keywords] of Object.entries(RED_FLAG_KEYWORD_MAP) as [RedFlag, string[]][]) {
-    for (const keyword of keywords) {
-      if (containsKeyword(keyword)) {
-        detectedFlags.push(flag);
-        break; // Match found for this red flag, move to next flag type
-      }
+  for (const [flag, matchers] of RED_FLAG_MATCHERS) {
+    if (
+      matchers.some((matcher) =>
+        typeof matcher === "string"
+          ? normalizedText.includes(matcher)
+          : matcher.test(normalizedText)
+      )
+    ) {
+      detectedFlags.push(flag);
     }
   }
 
@@ -93,7 +103,7 @@ export function evaluateSafetyPath(
   assessment: SafetyAssessment,
   additionalAnswers?: Record<string, string>
 ): DeterministicSafetyEvaluation {
-  const flags = new Set<RedFlag>(assessment.reportedRedFlags || []);
+  const flags = new Set<RedFlag>(assessment.reportedRedFlags);
 
   // Extract red flags from transcript text using deterministic rule matching
   if (assessment.transcript) {

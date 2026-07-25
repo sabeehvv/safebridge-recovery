@@ -8,7 +8,6 @@ import {
   SituationMode,
   SituationModeSchema
 } from "@/lib/schemas";
-import { VERIFIED_RESOURCES } from "@/lib/resources";
 
 export const runtime = "nodejs";
 
@@ -32,8 +31,7 @@ function safetyOnly(errorReason: string, status = 200) {
   return NextResponse.json(
     {
       isSafetyOnlyMode: true,
-      errorReason,
-      fallbackResources: VERIFIED_RESOURCES
+      errorReason
     },
     { status }
   );
@@ -45,9 +43,10 @@ function buildDeterministicTextAssessment(
   language: Language
 ): SafetyAssessment {
   const redFlags = extractRedFlagsFromText(text);
+  const redFlagSet = new Set(redFlags);
   const hasBreathingFlag =
-    redFlags.includes("not_breathing_normally") ||
-    redFlags.includes("severe_breathing_difficulty");
+    redFlagSet.has("not_breathing_normally") ||
+    redFlagSet.has("severe_breathing_difficulty");
 
   return {
     transcript: text,
@@ -56,11 +55,11 @@ function buildDeterministicTextAssessment(
     person: {
       isUser: mode !== "caregiver_concern",
       isAlone: null,
-      isResponsive: redFlags.includes("unresponsive") ? false : null,
+      isResponsive: redFlagSet.has("unresponsive") ? false : null,
       breathingConcernReported: hasBreathingFlag ? true : null,
       recentUseReported: mode === "recent_substance_use",
-      immediateSelfHarmConcern: redFlags.includes("immediate_self_harm_risk") ? true : null,
-      immediateViolenceConcern: redFlags.includes("immediate_violence_risk") ? true : null
+      immediateSelfHarmConcern: redFlagSet.has("immediate_self_harm_risk") ? true : null,
+      immediateViolenceConcern: redFlagSet.has("immediate_violence_risk") ? true : null
     },
     context: {
       substanceCategory: "unknown",

@@ -4,12 +4,14 @@ import { SAFETY_ANALYSIS_SYSTEM_PROMPT, INTERVENTION_SYSTEM_PROMPT } from "./pro
 
 const apiKey = process.env.GEMINI_API_KEY || "";
 const modelName = process.env.GEMINI_MODEL || "gemini-2.5-flash";
+let client: GoogleGenAI | null = null;
 
 function getClient(): GoogleGenAI {
   if (!apiKey) {
     throw new Error("GEMINI_API_KEY is not configured.");
   }
-  return new GoogleGenAI({ apiKey });
+  client ??= new GoogleGenAI({ apiKey });
+  return client;
 }
 
 async function withTimeout<T>(operation: Promise<T>, timeoutMs = 8_000): Promise<T> {
