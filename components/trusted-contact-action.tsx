@@ -16,6 +16,13 @@ export function TrustedContactAction({ message, contactPhone, language = "en" }:
   const copiedTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const isML = language === "ml";
 
+  useEffect(
+    () => () => {
+      if (copiedTimerRef.current) clearTimeout(copiedTimerRef.current);
+    },
+    []
+  );
+
   if (!message) return null;
 
   // Extract phone number from message if not explicitly provided in prop
@@ -98,9 +105,3 @@ export function TrustedContactAction({ message, contactPhone, language = "en" }:
     </div>
   );
 }
-  useEffect(
-    () => () => {
-      if (copiedTimerRef.current) clearTimeout(copiedTimerRef.current);
-    },
-    []
-  );

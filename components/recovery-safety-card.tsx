@@ -35,6 +35,13 @@ export function RecoverySafetyCardModal({
   const savedTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const isML = language === "ml";
 
+  useEffect(
+    () => () => {
+      if (savedTimerRef.current) clearTimeout(savedTimerRef.current);
+    },
+    []
+  );
+
   if (!isOpen) return null;
 
   const handleSave = () => {
@@ -174,9 +181,3 @@ export function RecoverySafetyCardModal({
     </div>
   );
 }
-  useEffect(
-    () => () => {
-      if (savedTimerRef.current) clearTimeout(savedTimerRef.current);
-    },
-    []
-  );

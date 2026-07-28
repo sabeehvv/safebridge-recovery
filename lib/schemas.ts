@@ -148,3 +148,18 @@ export const AnalyzeSituationResponseSchema = z.discriminatedUnion("isSafetyOnly
     errorReason: z.string().optional()
   }).passthrough()
 ]);
+export type AnalyzeSituationResponse = z.infer<typeof AnalyzeSituationResponseSchema>;
+
+export const ClarificationAnswerSchema = z.enum(["yes", "no", "unsure"]);
+
+export const ClarificationAnswersSchema = z.object({
+  isResponsive: ClarificationAnswerSchema.optional(),
+  breathing: ClarificationAnswerSchema.optional(),
+  selfHarm: ClarificationAnswerSchema.optional(),
+  violence: ClarificationAnswerSchema.optional()
+}).strict();
+
+export const ClarificationRequestSchema = z.object({
+  assessment: SafetyAssessmentSchema,
+  answers: ClarificationAnswersSchema
+});

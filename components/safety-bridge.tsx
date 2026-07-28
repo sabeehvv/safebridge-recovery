@@ -8,12 +8,14 @@ interface SafetyBridgeProps {
   assessment: SafetyAssessment;
   language: Language;
   onConfirmQuestion: (answers: Record<string, string>) => void;
+  isSubmitting?: boolean;
 }
 
 export function SafetyBridge({
   assessment,
   language,
-  onConfirmQuestion
+  onConfirmQuestion,
+  isSubmitting = false
 }: SafetyBridgeProps) {
   const [answers, setAnswers] = useState<Record<string, string>>({});
   const isML = language === "ml";
@@ -104,6 +106,7 @@ export function SafetyBridge({
           >
             <button
               type="button"
+              disabled={isSubmitting}
               onClick={() => handleOptionSelect("yes")}
               className="py-3 px-4 bg-emerald-600 hover:bg-emerald-500 text-white font-extrabold rounded-xl shadow-md transition-all active:scale-95 text-base"
             >
@@ -111,6 +114,7 @@ export function SafetyBridge({
             </button>
             <button
               type="button"
+              disabled={isSubmitting}
               onClick={() => handleOptionSelect("no")}
               className="py-3 px-4 bg-rose-600 hover:bg-rose-500 text-white font-extrabold rounded-xl shadow-md transition-all active:scale-95 text-base"
             >
@@ -118,6 +122,7 @@ export function SafetyBridge({
             </button>
             <button
               type="button"
+              disabled={isSubmitting}
               onClick={() => handleOptionSelect("unsure")}
               className="py-3 px-4 bg-slate-700 hover:bg-slate-600 text-white font-bold rounded-xl shadow-md transition-all active:scale-95 text-base"
             >
@@ -135,6 +140,7 @@ export function SafetyBridge({
 
           <button
             type="button"
+            disabled={isSubmitting}
             onClick={() => onConfirmQuestion(answers)}
             className="w-full bg-sky-500 hover:bg-sky-400 text-slate-950 font-black py-4 px-6 rounded-2xl shadow-xl flex items-center justify-center gap-2 transition-all text-lg"
           >

@@ -176,10 +176,10 @@ describe("POST /api/analyse-situation", () => {
   });
 
   it.each([
-    ["caregiver_concern", "isResponsive"],
-    ["recent_substance_use", "breathing"],
-    ["craving", null]
-  ])("builds safe text intake for %s", async (mode, questionId) => {
+    ["caregiver_concern", "isResponsive", false],
+    ["recent_substance_use", "breathing", false],
+    ["craving", null, true]
+  ])("builds safe text intake for %s", async (mode, questionId, hasIntervention) => {
     const response = await POST(
       formRequest({
         mode,
@@ -190,10 +190,91 @@ describe("POST /api/analyse-situation", () => {
     const body = await payload(response);
     expect(response.status).toBe(200);
     expect(body.isSafetyOnlyMode).toBe(false);
-    expect(body.intervention).toEqual(intervention);
+    expect(Boolean(body.intervention)).toBe(hasIntervention);
     expect(
       (body.assessment as SafetyAssessment).missingCriticalQuestion?.id ?? null
     ).toBe(questionId);
+  });
+
+  it("generates guidance only after a safe clarification answer", async () => {
+    const needsClarification: SafetyAssessment = {
+      ...assessment,
+      mode: "recent_substance_use",
+      missingCriticalQuestion: {
+        id: "breathing",
+        question: "Are you breathing normally right now?",
+        options: ["yes", "no", "unsure"]
+      }
+    };
+    const request = new NextRequest("http://localhost/api/analyse-situation", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        assessment: needsClarification,
+        answers: { breathing: "yes" }
+      })
+    });
+    const response = await POST(request);
+    const body = await payload(response);
+    expect(body.intervention).toEqual(intervention);
+    expect(geminiMocks.generateIntervention).toHaveBeenCalledWith(
+      expect.objectContaining({ missingCriticalQuestion: null }),
+      { breathing: "yes" }
+    );
+  });
+
+  it("routes an unsafe clarification answer without generating guidance", async () => {
+    const needsClarification: SafetyAssessment = {
+      ...assessment,
+      mode: "caregiver_concern",
+      missingCriticalQuestion: {
+        id: "isResponsive",
+        question: "Is the person responding?",
+        options: ["yes", "no", "unsure"]
+      }
+    };
+    const request = new NextRequest("http://localhost/api/analyse-situation", {
+      method: "POST",
+      headers: { "content-type": "application/json; charset=utf-8" },
+      body: JSON.stringify({
+        assessment: needsClarification,
+        answers: { isResponsive: "no" }
+      })
+    });
+    const response = await POST(request);
+    const body = await payload(response);
+    expect(body.intervention).toBeNull();
+    expect(body.safetyEval).toMatchObject({ finalUrgency: "emergency" });
+    expect(geminiMocks.generateIntervention).not.toHaveBeenCalled();
+  });
+
+  it("rejects invalid or mismatched clarification payloads", async () => {
+    const invalidRequest = new NextRequest("http://localhost/api/analyse-situation", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ assessment, answers: { breathing: "maybe" } })
+    });
+    expect((await POST(invalidRequest)).status).toBe(400);
+
+    const missingAnswerRequest = new NextRequest(
+      "http://localhost/api/analyse-situation",
+      {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          assessment: {
+            ...assessment,
+            missingCriticalQuestion: {
+              id: "breathing",
+              question: "Are you breathing normally?",
+              options: ["yes", "no", "unsure"]
+            }
+          },
+          answers: { isResponsive: "yes" }
+        })
+      }
+    );
+    expect((await POST(missingAnswerRequest)).status).toBe(400);
   });
 
   it("analyzes supported browser audio and returns intervention", async () => {
@@ -214,7 +295,10 @@ describe("POST /api/analyse-situation", () => {
       "craving",
       "en"
     );
-    expect(geminiMocks.generateIntervention).toHaveBeenCalledWith(assessment);
+    expect(geminiMocks.generateIntervention).toHaveBeenCalledWith(
+      assessment,
+      undefined
+    );
   });
 
   it("activates Safety-Only Mode when audio analysis fails", async () => {

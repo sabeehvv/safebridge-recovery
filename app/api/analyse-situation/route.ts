@@ -4,6 +4,7 @@ import { evaluateSafetyPath, extractRedFlagsFromText } from "@/lib/safety-engine
 import {
   Language,
   LanguageSchema,
+  ClarificationRequestSchema,
   SafetyAssessment,
   SituationMode,
   SituationModeSchema
@@ -102,6 +103,36 @@ function logServerError(context: string, error: unknown): void {
   console.error(`${context}: ${detail}`);
 }
 
+async function completeAssessment(
+  assessment: SafetyAssessment,
+  answers?: Record<string, string>
+) {
+  const safetyEval = evaluateSafetyPath(assessment, answers);
+  if (safetyEval.finalUrgency === "emergency") {
+    return NextResponse.json({
+      assessment,
+      safetyEval,
+      intervention: null,
+      isSafetyOnlyMode: false
+    });
+  }
+
+  try {
+    const intervention = await generateIntervention(assessment, answers);
+    return NextResponse.json({
+      assessment,
+      safetyEval,
+      intervention,
+      isSafetyOnlyMode: false
+    });
+  } catch (error: unknown) {
+    logServerError("Gemini intervention generation failed", error);
+    return safetyOnly(
+      "Personalized recovery guidance is temporarily unavailable. Verified safety actions remain available."
+    );
+  }
+}
+
 export async function POST(req: NextRequest) {
   const contentLength = Number(req.headers.get("content-length") || 0);
   if (Number.isFinite(contentLength) && contentLength > MAX_REQUEST_BYTES) {
@@ -109,6 +140,24 @@ export async function POST(req: NextRequest) {
   }
 
   try {
+    if (req.headers.get("content-type")?.startsWith("application/json")) {
+      const parsed = ClarificationRequestSchema.safeParse(await req.json());
+      if (!parsed.success) {
+        return safetyOnly("The safety clarification was invalid. Please start a new report.", 400);
+      }
+
+      const questionId = parsed.data.assessment.missingCriticalQuestion?.id;
+      if (!questionId || !parsed.data.answers[questionId]) {
+        return safetyOnly("The required safety question was not answered.", 400);
+      }
+
+      const clarifiedAssessment: SafetyAssessment = {
+        ...parsed.data.assessment,
+        missingCriticalQuestion: null
+      };
+      return completeAssessment(clarifiedAssessment, parsed.data.answers);
+    }
+
     const formData = await req.formData();
     const audioEntry = formData.get("audio");
     const audioFile = audioEntry instanceof File ? audioEntry : null;
@@ -172,7 +221,10 @@ export async function POST(req: NextRequest) {
       textFallback ? { textFallback } : undefined
     );
 
-    if (safetyEval.finalUrgency === "emergency") {
+    if (
+      safetyEval.finalUrgency === "emergency" ||
+      assessment.missingCriticalQuestion
+    ) {
       return NextResponse.json({
         assessment,
         safetyEval,
@@ -181,20 +233,7 @@ export async function POST(req: NextRequest) {
       });
     }
 
-    try {
-      const intervention = await generateIntervention(assessment);
-      return NextResponse.json({
-        assessment,
-        safetyEval,
-        intervention,
-        isSafetyOnlyMode: false
-      });
-    } catch (error: unknown) {
-      logServerError("Gemini intervention generation failed", error);
-      return safetyOnly(
-        "Personalized recovery guidance is temporarily unavailable. Verified safety actions remain available."
-      );
-    }
+    return completeAssessment(assessment);
   } catch (error: unknown) {
     logServerError("Unhandled /api/analyse-situation error", error);
     return safetyOnly("The report could not be processed. Safety mode is active.", 500);

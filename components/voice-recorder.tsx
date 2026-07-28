@@ -11,6 +11,8 @@ interface VoiceRecorderProps {
   isAnalyzing: boolean;
 }
 
+const MAX_RECORDING_SECONDS = 120;
+
 export function VoiceRecorder({
   language,
   onAudioSubmit,
@@ -28,6 +30,7 @@ export function VoiceRecorder({
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const audioChunksRef = useRef<Blob[]>([]);
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const recordingLimitRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const streamRef = useRef<MediaStream | null>(null);
 
@@ -54,6 +57,7 @@ export function VoiceRecorder({
   useEffect(() => {
     return () => {
       if (timerRef.current) clearInterval(timerRef.current);
+      if (recordingLimitRef.current) clearTimeout(recordingLimitRef.current);
       if (audioUrl) URL.revokeObjectURL(audioUrl);
       streamRef.current?.getTracks().forEach((track) => track.stop());
     };
@@ -75,7 +79,8 @@ export function VoiceRecorder({
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
       streamRef.current = stream;
       const supportedType = getSupportedMimeType();
-      const options = supportedType ? { mimeType: supportedType } : undefined;
+      const options: MediaRecorderOptions = { audioBitsPerSecond: 64_000 };
+      if (supportedType) options.mimeType = supportedType;
       const mediaRecorder = new MediaRecorder(stream, options);
       mediaRecorderRef.current = mediaRecorder;
 
@@ -102,6 +107,14 @@ export function VoiceRecorder({
       timerRef.current = setInterval(() => {
         setRecordingTime((prev) => prev + 1);
       }, 1000);
+      recordingLimitRef.current = setTimeout(() => {
+        if (mediaRecorder.state === "recording") {
+          mediaRecorder.stop();
+          setIsRecording(false);
+          if (timerRef.current) clearInterval(timerRef.current);
+          timerRef.current = null;
+        }
+      }, MAX_RECORDING_SECONDS * 1000);
     } catch (error: unknown) {
       console.error("Microphone access error:", error);
       setMicPermissionError(
@@ -120,6 +133,10 @@ export function VoiceRecorder({
       if (timerRef.current) {
         clearInterval(timerRef.current);
         timerRef.current = null;
+      }
+      if (recordingLimitRef.current) {
+        clearTimeout(recordingLimitRef.current);
+        recordingLimitRef.current = null;
       }
     }
   };
@@ -214,7 +231,7 @@ export function VoiceRecorder({
                   {isML ? `റെക്കോർഡിംഗ് നടക്കുന്നു (${formatTime(recordingTime)})` : `Recording (${formatTime(recordingTime)})`}
                 </span>
                 <p className="text-xs text-slate-400 mt-1">
-                  {isML ? "അവസാനിപ്പിക്കാൻ ടാപ്പ് ചെയ്യുക" : "Tap to stop when finished"}
+                  {isML ? "പൂർത്തിയാകുമ്പോൾ നിർത്തുക (പരമാവധി 2 മിനിറ്റ്)" : "Tap to stop when finished (2-minute maximum)"}
                 </p>
               </div>
             ) : (

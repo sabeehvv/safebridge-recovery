@@ -14,17 +14,21 @@ function getClient(): GoogleGenAI {
   return client;
 }
 
-async function withTimeout<T>(operation: Promise<T>, timeoutMs = 8_000): Promise<T> {
+async function withTimeout<T>(
+  operation: (signal: AbortSignal) => Promise<T>,
+  timeoutMs = 8_000
+): Promise<T> {
+  const controller = new AbortController();
   let timeoutId: ReturnType<typeof setTimeout> | undefined;
   const timeout = new Promise<never>((_, reject) => {
-    timeoutId = setTimeout(
-      () => reject(new Error(`Gemini API timeout after ${timeoutMs / 1_000} seconds`)),
-      timeoutMs
-    );
+    timeoutId = setTimeout(() => {
+      controller.abort();
+      reject(new Error(`Gemini API timeout after ${timeoutMs / 1_000} seconds`));
+    }, timeoutMs);
   });
 
   try {
-    return await Promise.race([operation, timeout]);
+    return await Promise.race([operation(controller.signal), timeout]);
   } finally {
     if (timeoutId) clearTimeout(timeoutId);
   }
@@ -49,134 +53,137 @@ Target Language: ${language}
 Please analyze this recorded voice situation. Transcribe the spoken text accurately, assess risk indicators, and provide structured safety assessment according to the system prompt guidelines.
 `;
 
-  const apiCall = getClient().models.generateContent({
-    model: modelName,
-    contents: [
-      {
-        role: "user",
-        parts: [
-          {
-            inlineData: {
-              data: base64Audio,
-              mimeType: mimeType || "audio/webm"
-            }
-          },
-          { text: prompt }
-        ]
-      }
-    ],
-    config: {
-      systemInstruction: SAFETY_ANALYSIS_SYSTEM_PROMPT,
-      responseMimeType: "application/json",
-      responseSchema: {
-        type: Type.OBJECT,
-        properties: {
-          transcript: { type: Type.STRING },
-          language: { type: Type.STRING, enum: ["en", "ml"] },
-          mode: { type: Type.STRING, enum: ["craving", "recent_substance_use", "caregiver_concern"] },
-          person: {
-            type: Type.OBJECT,
-            properties: {
-              isUser: { type: Type.BOOLEAN },
-              isAlone: { type: Type.BOOLEAN, nullable: true },
-              isResponsive: { type: Type.BOOLEAN, nullable: true },
-              breathingConcernReported: { type: Type.BOOLEAN, nullable: true },
-              recentUseReported: { type: Type.BOOLEAN, nullable: true },
-              immediateSelfHarmConcern: { type: Type.BOOLEAN, nullable: true },
-              immediateViolenceConcern: { type: Type.BOOLEAN, nullable: true }
+  const response = await withTimeout((abortSignal) =>
+    getClient().models.generateContent({
+      model: modelName,
+      contents: [
+        {
+          role: "user",
+          parts: [
+            {
+              inlineData: {
+                data: base64Audio,
+                mimeType: mimeType || "audio/webm"
+              }
             },
-            required: [
-              "isUser",
-              "isAlone",
-              "isResponsive",
-              "breathingConcernReported",
-              "recentUseReported",
-              "immediateSelfHarmConcern",
-              "immediateViolenceConcern"
-            ]
-          },
-          context: {
-            type: Type.OBJECT,
-            properties: {
-              substanceCategory: {
+            { text: prompt }
+          ]
+        }
+      ],
+      config: {
+        abortSignal,
+        temperature: 0,
+        maxOutputTokens: 2_048,
+        systemInstruction: SAFETY_ANALYSIS_SYSTEM_PROMPT,
+        responseMimeType: "application/json",
+        responseSchema: {
+          type: Type.OBJECT,
+          properties: {
+            transcript: { type: Type.STRING },
+            language: { type: Type.STRING, enum: ["en", "ml"] },
+            mode: { type: Type.STRING, enum: ["craving", "recent_substance_use", "caregiver_concern"] },
+            person: {
+              type: Type.OBJECT,
+              properties: {
+                isUser: { type: Type.BOOLEAN },
+                isAlone: { type: Type.BOOLEAN, nullable: true },
+                isResponsive: { type: Type.BOOLEAN, nullable: true },
+                breathingConcernReported: { type: Type.BOOLEAN, nullable: true },
+                recentUseReported: { type: Type.BOOLEAN, nullable: true },
+                immediateSelfHarmConcern: { type: Type.BOOLEAN, nullable: true },
+                immediateViolenceConcern: { type: Type.BOOLEAN, nullable: true }
+              },
+              required: [
+                "isUser",
+                "isAlone",
+                "isResponsive",
+                "breathingConcernReported",
+                "recentUseReported",
+                "immediateSelfHarmConcern",
+                "immediateViolenceConcern"
+              ]
+            },
+            context: {
+              type: Type.OBJECT,
+              properties: {
+                substanceCategory: {
+                  type: Type.STRING,
+                  enum: [
+                    "alcohol",
+                    "opioid",
+                    "stimulant",
+                    "sedative",
+                    "cannabis",
+                    "tobacco",
+                    "multiple",
+                    "unknown",
+                    "not_disclosed"
+                  ]
+                },
+                triggeringSituation: { type: Type.STRING, nullable: true },
+                emotions: { type: Type.ARRAY, items: { type: Type.STRING } },
+                locationContext: { type: Type.STRING, nullable: true },
+                trustedPersonAvailable: { type: Type.BOOLEAN, nullable: true }
+              },
+              required: [
+                "substanceCategory",
+                "triggeringSituation",
+                "emotions",
+                "locationContext",
+                "trustedPersonAvailable"
+              ]
+            },
+            reportedRedFlags: {
+              type: Type.ARRAY,
+              items: {
                 type: Type.STRING,
                 enum: [
-                  "alcohol",
-                  "opioid",
-                  "stimulant",
-                  "sedative",
-                  "cannabis",
-                  "tobacco",
-                  "multiple",
-                  "unknown",
-                  "not_disclosed"
+                  "unresponsive",
+                  "not_breathing_normally",
+                  "seizure",
+                  "severe_breathing_difficulty",
+                  "serious_injury",
+                  "immediate_self_harm_risk",
+                  "immediate_violence_risk"
                 ]
+              }
+            },
+            aiAssessment: {
+              type: Type.OBJECT,
+              properties: {
+                suggestedUrgency: { type: Type.STRING, enum: ["emergency", "urgent_human_support", "guided_support"] },
+                reason: { type: Type.STRING },
+                confidence: { type: Type.NUMBER }
               },
-              triggeringSituation: { type: Type.STRING, nullable: true },
-              emotions: { type: Type.ARRAY, items: { type: Type.STRING } },
-              locationContext: { type: Type.STRING, nullable: true },
-              trustedPersonAvailable: { type: Type.BOOLEAN, nullable: true }
+              required: ["suggestedUrgency", "reason", "confidence"]
             },
-            required: [
-              "substanceCategory",
-              "triggeringSituation",
-              "emotions",
-              "locationContext",
-              "trustedPersonAvailable"
-            ]
-          },
-          reportedRedFlags: {
-            type: Type.ARRAY,
-            items: {
-              type: Type.STRING,
-              enum: [
-                "unresponsive",
-                "not_breathing_normally",
-                "seizure",
-                "severe_breathing_difficulty",
-                "serious_injury",
-                "immediate_self_harm_risk",
-                "immediate_violence_risk"
-              ]
-            }
-          },
-          aiAssessment: {
-            type: Type.OBJECT,
-            properties: {
-              suggestedUrgency: { type: Type.STRING, enum: ["emergency", "urgent_human_support", "guided_support"] },
-              reason: { type: Type.STRING },
-              confidence: { type: Type.NUMBER }
+            missingCriticalQuestion: {
+              type: Type.OBJECT,
+              nullable: true,
+              properties: {
+                id: { type: Type.STRING },
+                question: { type: Type.STRING },
+                options: { type: Type.ARRAY, items: { type: Type.STRING, enum: ["yes", "no", "unsure"] } }
+              },
+              required: ["id", "question", "options"]
             },
-            required: ["suggestedUrgency", "reason", "confidence"]
+            requiresHumanReview: { type: Type.BOOLEAN }
           },
-          missingCriticalQuestion: {
-            type: Type.OBJECT,
-            nullable: true,
-            properties: {
-              id: { type: Type.STRING },
-              question: { type: Type.STRING },
-              options: { type: Type.ARRAY, items: { type: Type.STRING, enum: ["yes", "no", "unsure"] } }
-            },
-            required: ["id", "question", "options"]
-          },
-          requiresHumanReview: { type: Type.BOOLEAN }
-        },
-        required: [
-          "transcript",
-          "language",
-          "mode",
-          "person",
-          "context",
-          "reportedRedFlags",
-          "aiAssessment",
-          "missingCriticalQuestion",
-          "requiresHumanReview"
-        ]
+          required: [
+            "transcript",
+            "language",
+            "mode",
+            "person",
+            "context",
+            "reportedRedFlags",
+            "aiAssessment",
+            "missingCriticalQuestion",
+            "requiresHumanReview"
+          ]
+        }
       }
-    }
-  });
-
-  const response = await withTimeout(apiCall);
+    })
+  );
   const text = response.text;
   if (!text) {
     throw new Error("Empty response from Gemini");
@@ -210,18 +217,22 @@ ${JSON.stringify({
 </situation_data>
 `;
 
-  const apiCall = getClient().models.generateContent({
-    model: modelName,
-    contents: [
-      {
-        role: "user",
-        parts: [{ text: prompt }]
-      }
-    ],
-    config: {
-      systemInstruction: INTERVENTION_SYSTEM_PROMPT,
-      responseMimeType: "application/json",
-      responseSchema: {
+  const response = await withTimeout((abortSignal) =>
+    getClient().models.generateContent({
+      model: modelName,
+      contents: [
+        {
+          role: "user",
+          parts: [{ text: prompt }]
+        }
+      ],
+      config: {
+        abortSignal,
+        temperature: 0.2,
+        maxOutputTokens: 2_048,
+        systemInstruction: INTERVENTION_SYSTEM_PROMPT,
+        responseMimeType: "application/json",
+        responseSchema: {
         type: Type.OBJECT,
         properties: {
           urgency: { type: Type.STRING, enum: ["emergency", "urgent_human_support", "guided_support"] },
@@ -274,11 +285,10 @@ ${JSON.stringify({
           "resourceIds",
           "disclaimer"
         ]
+        }
       }
-    }
-  });
-
-  const response = await withTimeout(apiCall);
+    })
+  );
   const text = response.text;
   if (!text) {
     throw new Error("Empty intervention response from Gemini");

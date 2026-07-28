@@ -3,6 +3,7 @@
 import React, { useState } from "react";
 import {
   AnalyzeSituationResponseSchema,
+  AnalyzeSituationResponse,
   SituationMode,
   Language,
   SafetyAssessment,
@@ -20,6 +21,26 @@ import { EmergencyMode } from "@/components/emergency-mode";
 import { Shield } from "lucide-react";
 
 type Step = "INTAKE" | "SAFETY_BRIDGE" | "HANDOVER" | "EMERGENCY" | "SAFETY_ONLY";
+
+async function requestAnalysis(init: RequestInit): Promise<AnalyzeSituationResponse> {
+  const controller = new AbortController();
+  const timeoutId = window.setTimeout(() => controller.abort(), 15_000);
+  try {
+    const response = await fetch("/api/analyse-situation", {
+      method: "POST",
+      ...init,
+      signal: controller.signal
+    });
+    const rawData: unknown = await response.json();
+    const parsed = AnalyzeSituationResponseSchema.safeParse(rawData);
+    if (!parsed.success) {
+      throw new Error("The server returned an invalid safety response.");
+    }
+    return parsed.data;
+  } finally {
+    window.clearTimeout(timeoutId);
+  }
+}
 
 export default function HomePage() {
   const [step, setStep] = useState<Step>("INTAKE");
@@ -48,24 +69,10 @@ export default function HomePage() {
       formData.append("textFallback", textFallback);
     }
 
-    let requestTimeoutId: number | undefined;
     try {
-      const controller = new AbortController();
-      requestTimeoutId = window.setTimeout(() => controller.abort(), 15_000);
-      const res = await fetch("/api/analyse-situation", {
-        method: "POST",
-        body: formData,
-        signal: controller.signal
-      });
+      const data = await requestAnalysis({ body: formData });
 
-      const rawData: unknown = await res.json();
-      const parsed = AnalyzeSituationResponseSchema.safeParse(rawData);
-      if (!parsed.success) {
-        throw new Error("The server returned an invalid safety response.");
-      }
-      const data = parsed.data;
-
-      if (!res.ok || data.isSafetyOnlyMode) {
+      if (data.isSafetyOnlyMode) {
         setSafetyOnlyReason(
           ("errorReason" in data && data.errorReason) ||
             "Personalized AI analysis is temporarily unavailable."
@@ -82,11 +89,11 @@ export default function HomePage() {
       // If acute emergency red flags exist, force Safety Bridge / Emergency view immediately
       if (data.safetyEval.finalUrgency === "emergency") {
         setStep("EMERGENCY");
+      } else if (data.assessment.missingCriticalQuestion) {
+        setStep("SAFETY_BRIDGE");
       } else if (!data.intervention) {
         setSafetyOnlyReason("Personalized recovery guidance was unavailable.");
         setStep("SAFETY_ONLY");
-      } else if (data.assessment.missingCriticalQuestion) {
-        setStep("SAFETY_BRIDGE");
       } else {
         setStep("HANDOVER");
       }
@@ -99,12 +106,11 @@ export default function HomePage() {
       );
       setStep("SAFETY_ONLY");
     } finally {
-      if (requestTimeoutId) window.clearTimeout(requestTimeoutId);
       setIsAnalyzing(false);
     }
   };
 
-  const handleConfirmBridgeQuestion = (answers: Record<string, string>) => {
+  const handleConfirmBridgeQuestion = async (answers: Record<string, string>) => {
     if (!assessment) return;
 
     const updatedAssessment: SafetyAssessment = {
@@ -120,11 +126,40 @@ export default function HomePage() {
 
     if (updatedSafetyEval.finalUrgency === "emergency") {
       setStep("EMERGENCY");
-    } else if (intervention) {
-      setStep("HANDOVER");
-    } else {
-      setSafetyOnlyReason("Personalized recovery guidance was unavailable.");
+      return;
+    }
+
+    setIsAnalyzing(true);
+    try {
+      const data = await requestAnalysis({
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ assessment, answers })
+      });
+      if (data.isSafetyOnlyMode) {
+        setSafetyOnlyReason(
+          data.errorReason || "Personalized recovery guidance is unavailable."
+        );
+        setStep("SAFETY_ONLY");
+        return;
+      }
+
+      setAssessment(data.assessment);
+      setSafetyEval(data.safetyEval);
+      setIntervention(data.intervention);
+      if (data.safetyEval.finalUrgency === "emergency") {
+        setStep("EMERGENCY");
+      } else if (data.intervention) {
+        setStep("HANDOVER");
+      } else {
+        setSafetyOnlyReason("Personalized recovery guidance was unavailable.");
+        setStep("SAFETY_ONLY");
+      }
+    } catch (error: unknown) {
+      console.error("Clarification submission error:", error);
+      setSafetyOnlyReason("The clarification could not be processed. Safety mode was activated.");
       setStep("SAFETY_ONLY");
+    } finally {
+      setIsAnalyzing(false);
     }
   };
 
@@ -186,6 +221,7 @@ export default function HomePage() {
             assessment={assessment}
             language={language}
             onConfirmQuestion={handleConfirmBridgeQuestion}
+            isSubmitting={isAnalyzing}
           />
         </div>
       )}

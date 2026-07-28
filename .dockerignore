@@ -3,5 +3,9 @@ Dockerfile
 node_modules
 .next
 .git
-.env*.local
+.env
+.env.*
+!.env.example
+coverage
+*.log
 README.md
